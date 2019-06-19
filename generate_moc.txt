@@ -1,0 +1,17 @@
+命令行手动生成：
+
+1. 首先点击windows的开始按钮, 在运行窗口中输入cmd；
+
+2. 在弹出来的命令行窗口中进入Qt的安装目录, 一般是: 
+
+   cd  C:\Qt\4.8.4\bin
+
+3. 输入：moc "X:\XXX\...\src\glwidget.h" -o "X:\XXX\...\moc_glwidget.cpp", 回车；
+
+4. 打开文件夹“X:\XXX\...\”生成目录, 查看moc_glwidget.cpp是否已经生成
+
+
+
+moc D:\CVPlatform\mainwindow.h -o D:\CVPlatform\moc_mainwindow.cpp
+
+moc D:\CVPlatform\processmodule.h -o D:\CVPlatform\moc_processmodule.cpp

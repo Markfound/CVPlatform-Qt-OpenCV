@@ -1,0 +1,785 @@
+﻿#include<iostream>
+#include<cmath>
+#include<algorithm>
+#include<string>
+#include<cstring>
+#include <core/core.hpp>
+#include <highgui/highgui.hpp>
+#include <objdetect/objdetect.hpp>
+#include <imgproc/imgproc.hpp>
+using namespace cv;
+using namespace std;
+》
+vector<Mat>Result;
+vector<Point> pts;
+》
+void ImgLoad(Mat &Dst,string s)
+{
+    Dst=imread(s);
+}
+》
+void ImgSave(const Mat &SrcImg,string s)
+{
+    imwrite(SrcImg,s);
+}
+》
+void PerspectiveTrans(const Mat &SrcImg,Mat &DstImg,double p1x,double p1y,double p2x,double p2y,double p3x,double p3y,double p4x,double p4y,double p11x,double p11y,double p22x,double p22y,double p33x,double p33y,double p44x,double p44y) 
+{
+    Point2f AffinePoints0[4] = {Point2f(p1x, p1y), Point2f(p2x, p2y), Point2f(p3x, p3y), Point2f(p4x, p4y)};
+    Point2f AffinePoints1[4] = {Point2f(p11x, p11y), Point2f(p22x, p22y), Point2f(p33x, p33y), Point2f(p44x, p44y)};
+    Mat Trans = getPerspectiveTransform(AffinePoints0, AffinePoints1);
+    warpPerspective(SrcImg, DstImg, Trans, Size(SrcImg.cols, SrcImg.rows), INTER_CUBIC);
+}
+》
+void AffineTrans(const Mat &SrcImg,Mat &DstImg,double p1x,double p1y,double p2x,double p2y,double p3x,double p3y,double p11x,double p11y,double p22x,double p22y,double p33x,double p33y) 
+{
+    Point2f AffinePoints0[3] = {Point2f(p1x, p1y), Point2f(p2x, p2y), Point2f(p3x, p3y)};
+    Point2f AffinePoints1[3] = {Point2f(p11x, p11y), Point2f(p22x, p22y), Point2f(p33x, p33y)};
+    Mat Trans = getAffineTransform(AffinePoints0, AffinePoints1);
+    warpAffine(SrcImg, DstImg, Trans, Size(SrcImg.cols, SrcImg.rows), INTER_CUBIC);
+}
+》
+void resize_s(const Mat &SrcImg, Mat &DstImg, double width,double hight)
+{
+    resize(SrcImg, DstImg, Size(SrcImg.cols*width, SrcImg.rows*hight));
+}
+》
+void getRotationMatrix2D_s(const Mat &SrcImg, Mat &DstImg, double degree)
+{
+    warpAffine(SrcImg, DstImg, getRotationMatrix2D(Point2f(SrcImg.cols / 2, SrcImg.rows / 2), degree, 0.5), Size(SrcImg.cols, SrcImg.rows));
+}
+》
+void mirror_s(const Mat &SrcImg, Mat &DstImg,bool flag)
+{
+    Mat map_x;
+    Mat map_y;
+    map_x.create(SrcImg.size(), CV_32F);
+    map_y.create(SrcImg.size(), CV_32F);
+    for (int i = 0; i < SrcImg.rows; ++i)
+    {
+        for (int j = 0; j < SrcImg.cols; ++j)
+        {
+            if (!flag)
+            {
+                map_x.at<float>(i, j) = (float)(SrcImg.cols - j);
+                map_y.at<float>(i, j) = (float)i;
+            }
+            else
+            {
+                map_x.at<float>(i, j) = (float)(SrcImg.cols - j);
+                map_y.at<float>(i, j) = (float)(SrcImg.rows - i);
+            }
+        }
+    }
+    remap(SrcImg, DstImg, map_x, map_y, INTER_LINEAR);
+}
+》
+void trainslation(const Mat &SrcImg, Mat &DstImg,double width,double hight)
+{
+    cv::Mat t_mat = cv::Mat::zeros(2, 3, CV_32FC1);
+
+    t_mat.at<float>(0, 0) = 1;
+    t_mat.at<float>(0, 2) = SrcImg.cols*width; //水平平移量
+    t_mat.at<float>(1, 1) = 1;
+    t_mat.at<float>(1, 2) = SrcImg.rows*hight; //竖直平移量
+
+                                //根据平移矩阵进行仿射变换
+    warpAffine(SrcImg, DstImg, t_mat, SrcImg.size());
+
+}
+》
+void shear_s(const Mat &SrcImg, Mat &DstImg, double ratio)
+{
+    double a = tan(ratio*acos(-1.0) / 180.0);
+    int W = SrcImg.cols;
+    int H = SrcImg.rows + W*a;
+    DstImg.create(Size(W, H), SrcImg.type());
+    for(int i=0;i<SrcImg.rows;i++)
+    {
+        for (int j = 0; j < SrcImg.cols; j++)
+        {
+            int x = i + j*a;
+            for(int k=0;k<SrcImg.channels();k++)
+            {
+                DstImg.at<Vec3b>(x, j)[k] = SrcImg.at<Vec3b>(i, j)[k];
+            }
+        }
+    }
+}
+》
+void Rect_s(const Mat &SrcImg, Mat &DstImg, double x1, double y1, double x2, double y2)
+{
+    DstImg = SrcImg(Rect(Point2f(x1, y1), Point2f(x2, y2)));
+}
+》
+void RotatedRect_s(const Mat &SrcImg, Mat &DstImg, double x, double y,double size_x,double size_y, double angle)
+{
+    RotatedRect rRect = RotatedRect(Point2f(x, y), Size(size_x, size_y), angle);
+    Rect brect = rRect.boundingRect();
+    Point2f vertices[4];
+    rRect.points(vertices);
+    /*rectangle(SrcImg, brect, Scalar(255, 0, 0), 2);
+    for (int i = 0; i < 4; i++)
+        line(SrcImg, vertices[i], vertices[(i + 1) % 4], Scalar(0, 255, 0), 2);
+    */
+    Mat Tem;
+    warpAffine(SrcImg, Tem, getRotationMatrix2D(Point2f(x,y), angle, 1.0), Size(SrcImg.cols, SrcImg.rows));
+    DstImg = Tem(brect);
+}
+》
+void circle_s(const Mat &SrcImg, Mat &DstImg, double x, double y, double r)
+{
+    Mat logo = SrcImg(Rect(Point2f(x-r, y-r), Point2f(x+r, y+r)));
+    Mat mask = Mat::zeros(Size(2*r, 2*r), CV_8UC1);  //注意这一句，创建一个同logo一样大的纯黑的mask
+    circle(mask, Point(mask.rows / 2, mask.cols / 2), r, Scalar(255), -1, 8);  //在mask中画一个向内填充的白色圆
+    DstImg = Mat::zeros(SrcImg.size(), CV_8UC1);
+    logo.copyTo(DstImg, mask);//将logo拷贝到imgROI上，掩码为不为0的部分起作用，为0的部分不起作用
+}
+》
+void drawContours_s(const Mat &SrcImg, Mat &DstImg, vector<Point> pts)
+{
+    Mat roi = Mat::zeros(SrcImg.size(), CV_8U);
+    vector<vector<Point>> contour;
+    contour.push_back(pts);
+    drawContours(roi, contour, 0, Scalar::all(255), -1);
+    SrcImg.copyTo(DstImg, roi);
+}
+》
+void ellipse_s(const Mat &SrcImg, Mat &DstImg, double x, double y, double size_x, double size_y,double angle)
+{
+    DstImg = Mat::zeros(SrcImg.size(), SrcImg.type());
+    Mat mask = Mat::zeros(SrcImg.size(), CV_8U);
+    ellipse(mask, Point2f(x,y), Size(size_x, size_y), angle, 0, 360, Scalar(255), -1);
+    SrcImg.copyTo(DstImg, mask);
+}
+》
+void blur_s(const Mat &SrcImg,Mat &DstImg,const int kernel)
+{
+    blur(SrcImg,DstImg,Size(kernel,kernel));
+}
+》
+void MedianFiltering(const Mat &SrcImg, Mat &DstImg,const int kernel)
+{
+    medianBlur(SrcImg, DstImg, kernel);
+}
+》
+void GaussianFiltering(const Mat &SrcImg, Mat &DstImg,const int kernel)
+{
+    GaussianBlur(SrcImg, DstImg, Size(kernel, kernel), 0);
+}
+》
+void Laplacian_s(const Mat &SrcImg, Mat &DstImg, const int KernelSize)
+{
+    GaussianBlur(SrcImg, SrcImg, Size(KernelSize, KernelSize), 0, 0, BORDER_DEFAULT);
+    Laplacian(SrcImg, DstImg, CV_64F, KernelSize);
+    convertScaleAbs(DstImg, DstImg);
+}
+》
+void Canny_s(const Mat &SrcImg, Mat &DstImg, const int apertureSize, const double threshold1, const double threshold2)
+{
+    blur(SrcImg, SrcImg, Size(apertureSize, apertureSize));
+    Canny(SrcImg, DstImg, threshold1, threshold2, apertureSize);
+}
+》
+void Sobel_s(const Mat &SrcImg, Mat &DstImg, const int KernelSize, const double scale, const int BorderMode) //scale:缩放因子=1不缩放
+{
+    Mat Src_x, Src_y;
+    GaussianBlur(SrcImg, SrcImg, Size(KernelSize, KernelSize), 0, 0, BORDER_DEFAULT);
+    Sobel(SrcImg, Src_x, CV_16S, 1, 0, KernelSize, scale, 1, BorderMode);
+    convertScaleAbs(Src_x, Src_x);
+    Sobel(SrcImg, Src_y, CV_16S, 0, 1, KernelSize, scale, 1, BorderMode);
+    convertScaleAbs(Src_y, Src_y);
+    addWeighted(Src_x, 0.5, Src_y, 0.5, 0, DstImg);
+}
+》
+void Scharr_s(const Mat &SrcImg, Mat &DstImg, const double scale, const int BorderMode)
+{
+    Mat Src_x, Src_y;
+    Scharr(SrcImg, Src_x, CV_16S, 0, 1, scale, BorderMode);
+    convertScaleAbs(Src_x, Src_x);
+    Scharr(SrcImg, Src_y, CV_16S, 1, 0, scale, BorderMode);
+    convertScaleAbs(Src_y, Src_y);
+    addWeighted(Src_x, 0.5, Src_y, 0.5, 0, DstImg);
+}
+》
+void prewitt_s(const Mat &SrcImg, Mat &DstImg)
+{
+    Mat Kernelx, Kernely;
+    Mat SrcGray;
+    cvtColor(SrcImg, SrcGray, COLOR_RGB2GRAY);
+    Kernelx = (Mat_<double>(3, 3) << 1, 1, 1, 0, 0, 0, -1, -1, -1);
+    Kernely = (Mat_<double>(3, 3) << -1, 0, 1, -1, 0, 1, -1, 0, 1);
+    Mat grad_x, grad_y;
+    Mat abs_grad_x, abs_grad_y;
+    filter2D(SrcGray, grad_x, CV_16S, Kernelx, Point(-1, -1));
+    filter2D(SrcGray, grad_y, CV_16S, Kernely, Point(-1, -1));
+    convertScaleAbs(grad_x, abs_grad_x);
+    convertScaleAbs(grad_y, abs_grad_y);
+    addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0, DstImg);
+}
+》
+void robot_s(const Mat &SrcImg, Mat &DstImg)
+{
+    Mat Kernelx, Kernely;
+    Mat SrcGray;
+    cvtColor(SrcImg, SrcGray, COLOR_RGB2GRAY);
+    Kernelx = (Mat_<double>(2, 2) << 1,0,0,-1);
+    Kernely = (Mat_<double>(2, 2) << 0,1,-1,0);
+    Mat grad_x, grad_y;
+    Mat abs_grad_x, abs_grad_y;
+    filter2D(SrcGray, grad_x, CV_16S, Kernelx, Point(-1, -1));
+    filter2D(SrcGray, grad_y, CV_16S, Kernely, Point(-1, -1));
+    convertScaleAbs(grad_x, abs_grad_x);
+    convertScaleAbs(grad_y, abs_grad_y);
+    addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0, DstImg);
+}
+》
+void equalizeHist_s(const Mat &SrcImg, Mat &DstImg)
+{
+    Mat SrcImgRGB[5];
+    DstImg.create(SrcImg.size(), SrcImg.type());
+    split(SrcImg, SrcImgRGB);
+    for (int i = 0; i < SrcImg.channels(); i++)
+    {
+        equalizeHist(SrcImgRGB[i], SrcImgRGB[i]);
+    }
+    merge(SrcImgRGB, SrcImg.channels(), DstImg);
+}
+》
+void Log(const Mat &SrcImg, Mat &DstImg, const double NumOfLog)
+{
+    DstImg.create(SrcImg.size(), CV_32FC3);
+    for (int i = 0; i < SrcImg.rows; i++)
+    {
+        for (int j = 0; j < SrcImg.cols; j++)
+        {
+            DstImg.at<Vec3f>(i, j)[0] = log(NumOfLog + SrcImg.at<Vec3b>(i, j)[0]);
+            DstImg.at<Vec3f>(i, j)[1] = log(NumOfLog + SrcImg.at<Vec3b>(i, j)[1]);
+            DstImg.at<Vec3f>(i, j)[2] = log(NumOfLog + SrcImg.at<Vec3b>(i, j)[2]);
+        }
+    }
+    //归一化到0~255
+    normalize(DstImg, DstImg, 0, 255, NORM_MINMAX);
+    //转换成8bit图像显示
+    convertScaleAbs(DstImg, DstImg);
+}
+》
+void Gamma(const Mat &SrcImg, Mat &DstImg, const double gamma)
+{
+    DstImg.create(SrcImg.size(), CV_32FC3);
+    for (int i = 0; i < SrcImg.rows; i++)
+    {
+        for (int j = 0; j < SrcImg.cols; j++)
+        {
+            DstImg.at<Vec3f>(i, j)[0] = pow(SrcImg.at<Vec3b>(i, j)[0], gamma);
+            DstImg.at<Vec3f>(i, j)[1] = pow(SrcImg.at<Vec3b>(i, j)[1], gamma);
+            DstImg.at<Vec3f>(i, j)[2] = pow(SrcImg.at<Vec3b>(i, j)[2], gamma);
+        }
+    }
+    //归一化到0~255
+    normalize(DstImg, DstImg, 0, 255, NORM_MINMAX);
+    //转换成8bit图像显示
+    convertScaleAbs(DstImg, DstImg);
+}
+》
+void equalizeHist_stretching(Mat SrcImg, Mat &DstImg)
+{
+    double pR = 0.0;//斜率
+    double pG = 0.0;//斜率
+    double pB = 0.0;//斜率
+    int minGrayDegree = 255;
+    int maxGrayDegree = 0;
+    int minGrayDegreeR = 255;
+    int maxGrayDegreeR = 0;
+    int minGrayDegreeG = 255;
+    int maxGrayDegreeG = 0;
+    int minGrayDegreeB = 255;
+    int maxGrayDegreeB = 0;
+    //Rectangle rt = new Rectangle(0, 0, dstBmp.Width, dstBmp.Height);
+    //BitmapData bmpData = dstBmp.LockBits(rt, ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+    //unsafe{
+    for (int i = 0; i < SrcImg.rows; i++) {
+        uchar* ptr = SrcImg.ptr<uchar>(i);
+        for (int j = 0; j < SrcImg.cols; j++) {
+            if ((minGrayDegreeR > *(ptr + j * 3 + 2)) && SrcImg.channels()>=3)
+                minGrayDegreeR = *(ptr + j * 3 + 2);
+            if ((maxGrayDegreeR < *(ptr + j * 3 + 2)) && SrcImg.channels() >= 3)
+                maxGrayDegreeR = *(ptr + j * 3 + 2);
+            if ((minGrayDegreeG > *(ptr + j * 3 + 1)) && SrcImg.channels() >= 2)
+                minGrayDegreeG = *(ptr + j * 3 + 1);
+            if ((maxGrayDegreeG < *(ptr + j * 3 + 1)) && SrcImg.channels() >= 2)
+                maxGrayDegreeG = *(ptr + j * 3 + 1);
+            if (minGrayDegreeB > *(ptr + j * 3))
+                minGrayDegreeB = *(ptr + j * 3);
+            if (maxGrayDegreeB < *(ptr + j * 3))
+                maxGrayDegreeB = *(ptr + j * 3);
+        }
+    }
+    pR = 255.0 / (maxGrayDegreeR - minGrayDegreeR);
+    pG = 255.0 / (maxGrayDegreeG - minGrayDegreeG);
+    pB = 255.0 / (maxGrayDegreeB - minGrayDegreeB);
+    for (int i = 0; i < SrcImg.rows; i++) {
+        uchar* ptr1 = SrcImg.ptr<uchar>(i);
+        for (int j = 0; j < SrcImg.cols; j++) {
+            *(ptr1 + j * 3) = (int)((*(ptr1 + j * 3) - minGrayDegreeB) * pB + 0.5);
+            if(SrcImg.channels() >= 2)
+                *(ptr1 + j * 3 + 1) = (int)((*(ptr1 + j * 3 + 1) - minGrayDegreeG) * pG + 0.5);
+            if(SrcImg.channels() >= 3)
+                *(ptr1 + j * 3 + 2) = (int)((*(ptr1 + j * 3 + 2) - minGrayDegreeR) * pR + 0.5);
+        }
+    }
+    DstImg = SrcImg.clone();
+}
+》
+void lut(const Mat &SrcImg,Mat &DstImg)
+{
+    int n=SrcImg.channels();
+    uchar lutData[256 * 5];
+    int j = 0;
+    for (int i = 0; i<256; i++)
+    {
+        if (i <= 100)
+        {
+            for (int j = 0; j < n; j++)
+            {
+                lutData[i*n+j] = 100;
+            }
+        }
+        else if (i > 100 && i <= 200)
+        {
+            for (int j = 0; j < n; j++)
+            {
+                lutData[i*n + j] = 200;
+            }
+        }
+        else
+        {
+            for (int j = 0; j < n; j++)
+            {
+                lutData[i*n + j] = 256;
+            }
+        }
+
+    }
+    Mat lut(1, 256, SrcImg.type(), lutData);
+    LUT(SrcImg, lut, DstImg);
+}
+》
+void ImageReverse(Mat &SrcImg, Mat &DstImg)
+{
+    // cvtColor(SrcImg, SrcImg, COLOR_BGR2GRAY);
+    DstImg = 255 - SrcImg;
+}
+》
+void cvtColor_s(const Mat &SrcImg, Mat &DstImg)
+{
+    if(SrcImg.channels()==3||SrcImg.channels()==4)
+        cvtColor(SrcImg, DstImg, COLOR_BGR2GRAY);
+    else
+        DstImg=SrcImg.clone();
+}
+》
+void applyColorMap_s(const Mat &SrcImg,Mat &DstImg,const int mode)
+{
+    Mat SrcGray;
+    cvtColor(SrcImg, SrcGray, COLOR_RGB2GRAY);
+    applyColorMap(SrcGray, DstImg ,mode);
+}
+》
+void unevenLightCompensate(Mat &image, Mat &DstImg,int blockSize)
+{
+    DstImg = image.clone();
+    if (DstImg.channels() == 3) cvtColor(DstImg, DstImg, 7);
+    double average = mean(DstImg)[0];
+    int rows_new = ceil(double(DstImg.rows) / double(blockSize));
+    int cols_new = ceil(double(DstImg.cols) / double(blockSize));
+    Mat blockImage;
+    blockImage = Mat::zeros(rows_new, cols_new, CV_32FC1);
+    for (int i = 0; i < rows_new; i++)
+    {
+        for (int j = 0; j < cols_new; j++)
+        {
+            int rowmin = i*blockSize;
+            int rowmax = (i + 1)*blockSize;
+            if (rowmax > DstImg.rows) rowmax = DstImg.rows;
+            int colmin = j*blockSize;
+            int colmax = (j + 1)*blockSize;
+            if (colmax > DstImg.cols) colmax = DstImg.cols;
+            Mat imageROI = DstImg(Range(rowmin, rowmax), Range(colmin, colmax));
+            double temaver = mean(imageROI)[0];
+            blockImage.at<float>(i, j) = temaver;
+        }
+    }
+    blockImage = blockImage - average;
+    Mat blockImage2;
+    resize(blockImage, blockImage2, DstImg.size(), (0, 0), (0, 0), INTER_CUBIC);
+    Mat image2;
+    DstImg.convertTo(image2, CV_32FC1);
+    Mat dst = image2 - blockImage2;
+    dst.convertTo(DstImg, CV_8UC1);
+}
+》
+void Corrosion(Mat &SrcImg, Mat &DstImg, const int width, const int height, const int shape)
+{
+    Mat element = getStructuringElement(shape, Size(width, height));
+    erode(SrcImg, DstImg, element);
+}
+》
+void Expanding(Mat &SrcImg, Mat &DstImg,const int width, const int height, const int shape)
+{
+    Mat element = getStructuringElement(shape, Size(width, height));
+    dilate(SrcImg, DstImg, element);
+}
+》
+void morphologyEx_s(const Mat &SrcImg, Mat &DstImg, int Width,int Height,int flag)
+{
+    Mat SrcImgGray;
+    if(SrcImg.channels()>=3)
+        cvtColor(SrcImg, SrcImgGray, COLOR_RGB2GRAY);
+    else
+        SrcImgGray=SrcImg.clone();
+    Mat element = getStructuringElement(MORPH_RECT, Size(Width, Height));
+    if(flag==0)
+        morphologyEx(SrcImgGray, DstImg, MORPH_OPEN, element);
+    else if(flag==1)
+        morphologyEx(SrcImgGray, DstImg, MORPH_CLOSE, element);
+    else if(flag==2)
+        morphologyEx(SrcImgGray, DstImg, MORPH_TOPHAT, element);
+    else if(flag==3)
+        morphologyEx(SrcImgGray, DstImg, MORPH_BLACKHAT, element);
+    else
+        morphologyEx(SrcImgGray, DstImg, MORPH_GRADIENT, element);
+}
+》
+void Threshold_s(const Mat& SrcImg,Mat& DstImg,const int Min,const int Max,const int mode)
+{
+    if(SrcImg.channels()==3||SrcImg.channels()==4)
+    {
+        Mat SrcImgGray;
+        cvtColor(SrcImg,SrcImgGray,COLOR_RGB2GRAY);
+        threshold(SrcImgGray,DstImg,Min,Max,mode);
+    }
+    else
+        threshold(SrcImg,DstImg,Min,Max,mode);
+}
+》
+void dft_s(const Mat &SrcImg, Mat &DstImg)
+{
+    Mat SrcGray;
+    if (SrcImg.channels() >= 2)
+        cvtColor(SrcImg, SrcGray, COLOR_RGB2GRAY);
+    else
+        SrcGray = SrcImg.clone();
+    int M = getOptimalDFTSize(SrcGray.rows);
+    int N = getOptimalDFTSize(SrcGray.cols);
+    Mat padded;
+    copyMakeBorder(SrcGray, padded, 0, M - SrcGray.rows, 0, N - SrcGray.cols, BORDER_CONSTANT, Scalar::all(0));
+    Mat planes[2] = { Mat_<float>(padded), Mat::zeros(padded.size(), CV_32F) };
+    Mat ImgDFT;
+    merge(planes, 2, ImgDFT);
+
+    dft(ImgDFT, ImgDFT);
+    //正变换过后，先对频谱图进行中心平移
+    ImgDFT = ImgDFT(Rect(0, 0, ImgDFT.cols & -2, ImgDFT.rows & -2));
+
+    int cx = ImgDFT.cols / 2;
+    int cy = ImgDFT.rows / 2;
+    // rearrange the quadrants of Fourier image
+    // so that the origin is at the image center
+    Mat tmp;
+    Mat q0(ImgDFT, Rect(0, 0, cx, cy));
+    Mat q1(ImgDFT, Rect(cx, 0, cx, cy));
+    Mat q2(ImgDFT, Rect(0, cy, cx, cy));
+    Mat q3(ImgDFT, Rect(cx, cy, cx, cy));
+    q0.copyTo(tmp);
+    q3.copyTo(q0);
+    tmp.copyTo(q3);
+
+    q1.copyTo(tmp);
+    q2.copyTo(q1);
+    tmp.copyTo(q2);
+    //将得到的频谱图分解成虚部和实部两部分
+    split(ImgDFT, planes);
+    Mat Proc_RE = planes[0];
+    Mat Proc_IM = planes[1];
+
+    /*******************************************************/
+    //此处定义处理频谱的方法，实部和虚部要分开分别进行处理
+    double ESP = 0.000001;
+    for (int i = 0; i < Proc_RE.rows; ++i)
+        for (int j = 0; j < Proc_RE.cols; ++j)
+        {
+            double dx = i - Proc_RE.rows / 2;
+            double dy = j - Proc_RE.cols / 2;
+            Proc_RE.at<float>(i, j) = (1 - exp(-100 / (pow(dx, 2) + pow(dy, 2) + ESP)))* Proc_RE.at<float>(i, j);
+            Proc_IM.at<float>(i, j) = (1 - exp(-100 / (pow(dx, 2) + pow(dy, 2) + ESP)))* Proc_IM.at<float>(i, j);
+        }
+    /*******************************************************/
+    //此处用于显示处理后的频谱图像（频谱为傅立叶变换的幅值，magnitude（）函数可以直接求得），
+    magnitude(planes[0], planes[1], DstImg);
+    DstImg += Scalar::all(1);
+    log(DstImg, DstImg);
+    normalize(DstImg, DstImg, 0, 1, NORM_MINMAX);
+}
+》
+void horizontalProjectionMat(Mat srcImg,Mat &dstImg)//水平投影
+{
+    if (srcImg.channels() >= 2)
+    {
+        cvtColor(srcImg, srcImg, COLOR_RGB2GRAY);
+    }
+    Mat binImg;
+    blur(srcImg, binImg, Size(3, 3));
+    threshold(binImg, binImg, 0, 255, THRESH_OTSU);
+    int perPixelValue = 0;//每个像素的值
+    int width = srcImg.cols;
+    int height = srcImg.rows;
+    int* projectValArry = new int[height];//创建一个储存每行白色像素个数的数组
+    memset(projectValArry, 0, height * 4);//初始化数组
+    for (int col = 0; col < height; col++)//遍历每个像素点
+    {
+        for (int row = 0; row < width; row++)
+        {
+            perPixelValue = binImg.at<uchar>(col, row);
+            if (perPixelValue == 0)//如果是白底黑字
+            {
+                projectValArry[col]++;
+            }
+        }
+    }
+    dstImg.create(height, width, CV_8UC1);//创建画布
+    for (int i = 0; i < height; i++)
+    {
+        for (int j = 0; j < width; j++)
+        {
+            perPixelValue = 255;
+            dstImg.at<uchar>(i, j) = perPixelValue;//设置背景为白色
+        }
+    }
+    for (int i = 0; i < height; i++)//水平直方图
+    {
+        for (int j = 0; j < projectValArry[i]; j++)
+        {
+            perPixelValue = 0;
+            dstImg.at<uchar>(i, width - 1 - j) = perPixelValue;//设置直方图为黑色
+        }
+    }
+
+}
+》
+void verticalProjectionMat(Mat srcImg,Mat &dstImg)//垂直投影
+{
+    if (srcImg.channels() >= 2)
+    {
+        cvtColor(srcImg, srcImg, COLOR_RGB2GRAY);
+    }
+    Mat binImg;
+    blur(srcImg, binImg, Size(3, 3));
+    threshold(binImg, binImg, 0, 255, THRESH_OTSU);
+    int perPixelValue;//每个像素的值
+    int width = srcImg.cols;
+    int height = srcImg.rows;
+    int* projectValArry = new int[width];//创建用于储存每列白色像素个数的数组
+    memset(projectValArry, 0, width * 4);//初始化数组
+    for (int col = 0; col < width; col++)
+    {
+        for (int row = 0; row < height; row++)
+        {
+            perPixelValue = binImg.at<uchar>(row, col);
+            if (perPixelValue == 0)//如果是白底黑字
+            {
+                projectValArry[col]++;
+            }
+        }
+    }
+    dstImg.create(height, width, CV_8UC1);//垂直投影的画布
+    for (int i = 0; i < height; i++)
+    {
+        for (int j = 0; j < width; j++)
+        {
+            perPixelValue = 255;  //背景设置为白色
+            dstImg.at<uchar>(i, j) = perPixelValue;
+        }
+    }
+    for (int i = 0; i < width; i++)//垂直投影直方图
+    {
+        for (int j = 0; j < projectValArry[i]; j++)
+        {
+            perPixelValue = 0;  //直方图设置为黑色
+            dstImg.at<uchar>(height - 1 - j, i) = perPixelValue;
+        }
+    }
+}
+》
+void calcHist_s(const Mat &SrcImg,Mat &DstImg)
+{
+    // 分割成3个单通道图像 ( R, G 和 B )
+    vector<Mat> rgb_planes;
+    split(SrcImg, rgb_planes);
+
+    // 设定bin数目
+    int histSize = 255;
+
+    // 设定取值范围 ( R,G,B) )
+    float range[] = { 0, 255 };
+    const float* histRange = { range };
+
+    bool uniform = true; bool accumulate = false;
+
+    Mat r_hist, g_hist, b_hist;
+
+    // 计算直方图:
+    calcHist(&rgb_planes[0], 1, 0, Mat(), r_hist, 1, &histSize, &histRange, uniform, accumulate);
+    calcHist(&rgb_planes[1], 1, 0, Mat(), g_hist, 1, &histSize, &histRange, uniform, accumulate);
+    calcHist(&rgb_planes[2], 1, 0, Mat(), b_hist, 1, &histSize, &histRange, uniform, accumulate);
+
+    // 创建直方图画布
+    int hist_w = 400; int hist_h = 400;
+    int bin_w = cvRound((double)hist_w / histSize);
+
+    DstImg.create(hist_w, hist_h, CV_8UC3);
+
+    // 将直方图归一化到范围 [ 0, histImage.rows ]
+    normalize(r_hist, r_hist, 0, DstImg.rows, NORM_MINMAX, -1, Mat());
+    normalize(g_hist, g_hist, 0, DstImg.rows, NORM_MINMAX, -1, Mat());
+    normalize(b_hist, b_hist, 0, DstImg.rows, NORM_MINMAX, -1, Mat());
+
+    // 在直方图画布上画出直方图
+    for (int i = 1; i < histSize; i++)
+    {
+        line(DstImg, Point(bin_w*(i - 1), hist_h - cvRound(r_hist.at<float>(i - 1))),
+            Point(bin_w*(i), hist_h - cvRound(r_hist.at<float>(i))),
+            Scalar(0, 0, 255), 2, 8, 0);
+        line(DstImg, Point(bin_w*(i - 1), hist_h - cvRound(g_hist.at<float>(i - 1))),
+            Point(bin_w*(i), hist_h - cvRound(g_hist.at<float>(i))),
+            Scalar(0, 255, 0), 2, 8, 0);
+        line(DstImg, Point(bin_w*(i - 1), hist_h - cvRound(b_hist.at<float>(i - 1))),
+            Point(bin_w*(i), hist_h - cvRound(b_hist.at<float>(i))),
+            Scalar(255, 0, 0), 2, 8, 0);
+    }
+}
+》
+void HitOrMiss(const Mat &SrcImg, Mat &DstImg)
+{
+    //Mat input_image = imread("d://timg.jpg", 2);
+    /*imshow("Hit or Miss原图", input_image);
+    Mat kernel1 = (Mat_<int>(3, 3) <<
+        0, 1, 0,
+        1, -1, 1,
+        0, 1, 0);
+    Mat kernel2 = (Mat_<int>(3, 3) <<
+        0, 1, 0,
+        1, 0, 1,
+        0, 1, 0);
+    Mat kernel3 = (Mat_<int>(3, 3) <<
+        0, 0, 0,
+        0, 1, 0,
+        0, 0, 0);
+    Mat output_image, output_image1, output_image2, output_image3, output_image4;
+    Mat element = getStructuringElement(0, Size(3, 3), Point(-1, -1));
+    erode(input_image, output_image3, element);
+    imshow("腐蚀图", output_image3);
+    morphologyEx(input_image, output_image1, MORPH_HITMISS, kernel3);
+    morphologyEx(input_image, output_image2, MORPH_HITMISS, kernel2);
+    morphologyEx(input_image, output_image, MORPH_HITMISS, kernel1);
+    imshow("Hit or Miss0", output_image1);
+    imshow("Hit or Miss1", output_image2);
+    imshow("Hit or Miss", output_image);
+    cv::absdiff(output_image1, output_image2, output_image4);
+    cv::imshow("Hit or Miss2", output_image4);*/
+    Mat SrcGray;
+    if (SrcImg.channels() >= 3)
+        cvtColor(SrcImg, SrcGray, COLOR_RGB2GRAY);
+    else
+        SrcGray = SrcImg.clone();
+    Mat kernel1 = (Mat_<int>(3, 3) <<
+        0, 1, 0,
+        1, -1, 1,
+        0, 1, 0);
+    morphologyEx(SrcGray, DstImg, MORPH_HITMISS, kernel1);
+}
+》
+void thinImage(const Mat & srcImg,Mat &dstImg)
+{
+    Mat SrcGray;
+    if(srcImg.channels()>=2)
+        cvtColor(srcImg,SrcGray,COLOR_RGB2GRAY);
+    else
+        SrcGray=srcImg.clone();
+    dstImg = SrcGray.clone();
+    vector<Point> deleteList;
+    int neighbourhood[9];
+    int nl = srcImg.rows;
+    int nc = srcImg.cols;
+    bool inOddIterations = true;
+    while (true) {
+        for (int j = 1; j < (nl - 1); j++) {
+            uchar* data_last = dstImg.ptr<uchar>(j - 1);
+            uchar* data = dstImg.ptr<uchar>(j);
+            uchar* data_next = dstImg.ptr<uchar>(j + 1);
+            for (int i = 1; i < (nc - 1); i++) {
+                if (data[i] == 255) {
+                    int whitePointCount = 0;
+                    neighbourhood[0] = 1;
+                    if (data_last[i] == 255) neighbourhood[1] = 1;
+                    else  neighbourhood[1] = 0;
+                    if (data_last[i + 1] == 255) neighbourhood[2] = 1;
+                    else  neighbourhood[2] = 0;
+                    if (data[i + 1] == 255) neighbourhood[3] = 1;
+                    else  neighbourhood[3] = 0;
+                    if (data_next[i + 1] == 255) neighbourhood[4] = 1;
+                    else  neighbourhood[4] = 0;
+                    if (data_next[i] == 255) neighbourhood[5] = 1;
+                    else  neighbourhood[5] = 0;
+                    if (data_next[i - 1] == 255) neighbourhood[6] = 1;
+                    else  neighbourhood[6] = 0;
+                    if (data[i - 1] == 255) neighbourhood[7] = 1;
+                    else  neighbourhood[7] = 0;
+                    if (data_last[i - 1] == 255) neighbourhood[8] = 1;
+                    else  neighbourhood[8] = 0;
+                    for (int k = 1; k < 9; k++) {
+                        whitePointCount += neighbourhood[k];
+                    }
+                    if ((whitePointCount >= 2) && (whitePointCount <= 6)) {
+                        int ap = 0;
+                        if ((neighbourhood[1] == 0) && (neighbourhood[2] == 1)) ap++;
+                        if ((neighbourhood[2] == 0) && (neighbourhood[3] == 1)) ap++;
+                        if ((neighbourhood[3] == 0) && (neighbourhood[4] == 1)) ap++;
+                        if ((neighbourhood[4] == 0) && (neighbourhood[5] == 1)) ap++;
+                        if ((neighbourhood[5] == 0) && (neighbourhood[6] == 1)) ap++;
+                        if ((neighbourhood[6] == 0) && (neighbourhood[7] == 1)) ap++;
+                        if ((neighbourhood[7] == 0) && (neighbourhood[8] == 1)) ap++;
+                        if ((neighbourhood[8] == 0) && (neighbourhood[1] == 1)) ap++;
+                        if (ap == 1) {
+                            if (inOddIterations && (neighbourhood[3] * neighbourhood[5] * neighbourhood[7] == 0)
+                                && (neighbourhood[1] * neighbourhood[3] * neighbourhood[5] == 0)) {
+                                deleteList.push_back(Point(i, j));
+                            }
+                            else if (!inOddIterations && (neighbourhood[1] * neighbourhood[5] * neighbourhood[7] == 0)
+                                && (neighbourhood[1] * neighbourhood[3] * neighbourhood[7] == 0)) {
+                                deleteList.push_back(Point(i, j));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (deleteList.size() == 0)
+            break;
+        for (size_t i = 0; i < deleteList.size(); i++) {
+            Point tem;
+            tem = deleteList[i];
+            uchar* data = dstImg.ptr<uchar>(tem.y);
+            data[tem.x] = 0;
+        }
+        deleteList.clear();
+
+        inOddIterations = !inOddIterations;
+    }
+}
+》
+int main()
+{
+    Result.clear();
+    pts.clear();
+    Mat DstImg;

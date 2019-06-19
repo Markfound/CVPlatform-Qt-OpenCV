@@ -1,0 +1,7 @@
+<RCC>
+    <qresource>
+      <file>resources/Screen.jpg</file>
+      <file>resources/Code.txt</file>
+      <file>resources/Code2.txt</file>
+    </qresource>
+</RCC>

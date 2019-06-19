@@ -1,0 +1,1 @@
+# CVPlatform-Qt-OpenCV
